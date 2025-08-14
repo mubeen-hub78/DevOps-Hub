@@ -1,0 +1,243 @@
+Prometheus:
+==========
+Prometheus is an open source monitoring tool developed by soundcloud using GO programming language..
+We can monitoring our infrastructure devices using prometheus.
+Infrastructure devices means it can monitor cpu,memory,file system,network bandwidth and etc.
+
+How to Monitor?
+
+We need to install prometheus in one server and install the below agents on the target machines which we want to monitor.
+Promethues stores all the target information in prometheus.yml file.
+Server monitoring:
+=================
+We need to setup node exporter on prometheus server to monitor cpu,memory,disk usage,file system,network bandwidth.
+
+Network Monitoring:
+==================
+We need to setup SNMP exporter allows to monitor network related metrics.
+
+Monitor Batch jobs:
+==================
+Using push gateway we can monitor batch jobs.
+Batch jobs means which are running in the background for automation.
+
+Prometheus also provides web user interface where we can see all the metrics and the machines which are being monitored.
+Interface of prometheus is quite complex so we use Grafana for visualization of graphs and dashboards.
+
+Prometheus Architecture:
+=======================
+In promethues server we can find three main components:
+1) Retrieval : which pull the metrics from target machines.
+2) TSDB(Time series Data base): TSDB is different from our RDMS which stores data based on time series.
+3) HTTP Server: Promethues also has web user interface,this can be run on HTTP server.
+
+Promethues using promQuerylanguage to fetch the data from prometheus server.
+Grafana will also use promQuerylanguage to fetch the data from prometheus server.
+We can also use API clients external to show the data on our websites.
+
+Prometheus also support Alerting with the help of AlertManager which will send alerts to
+pagerduty,email,telegram etc.
+
+Service Discovery in prometheus will connect to target systems on its own if need targets are added to environment.
+Prometheus will also use static configuration, where we need to add the target machine information in promethues server.
+
+Prometheus Installation:
+=======================
+https://prometheus.io/docs/prometheus/2.39/getting_started/
+
+By default configuration prometheus is monitoring its own server.
+
+Now Launch one target ec2 where you want prometheus to monitor.
+Install node exporter on the target machine.
+https://prometheus.io/download/
+
+Now got to prometheus server.
+Open prometheus.yml file and add the target ip address and port number
+restart the prometheus server.
+
+Recording rules:
+===============
+If suppose we have 100 servers and we wanted to monitor percentage of free node memory frequently, 
+the expression for it is a bit complex and looks like this
+
+100 - (100 * node_memory_MemFree_bytes / node_memory_MemTotal_bytes)
+
+If we run this query evrytime to fetch the data then it might reduce the performane.
+We use recorded rules which will store the precomputed result and helps us to fetch the data more faster.
+
+How to create rule?
+we create a prometheus_rules.yml containing the necessary rule statements and then have Prometheus 
+load the file via the rule_files field in the prometheus configuration i.e., prometheus.yml.
+
+Copy the below content.
+====================================================
+groups:
+  - name: custom_rules
+    rules:
+      - record: node_memory_MemFree_percent
+        expr: 100 - (100 * node_memory_MemFree_bytes / node_memory_MemTotal_bytes)
+
+      - record: node_filesystem_free_percent
+        expr: 100 * node_filesystem_free_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}
+
+==========================================================
+Once we have created the recording rules, we need to check if the rules have any faults or syntax errors 
+or indentation problem, we can execute this command to verify.
+
+./promtool check rules  prometheus_rules.yml
+
+Once we see the SUCCESS message then we need to add the rules configuration in the prometheus config file. 
+It’s pretty easy and straight forward, we just add the name of the recording rules file in prometheus.yml file 
+under the field rule_files.
+Example: 
+rule_files:
+  - "prometheus_rules.yml"
+Once we add in prometheus.yml file, we need to restart the prometheus service for the rules to be added 
+and shown in dashboard. 
+./prometheus --config.file=prometheus.yml
+
+Alert in prometheus:
+===================
+Alert manager will helps to push the alerts to different platform like pagerduty,email,telegram and etc..
+We need to configure alert on prometheus server.
+
+use case:
+If suppose your server is down and you want that alert to be sent by prometheus then we can use the alert manager.
+
+How to setup alert?
+==================
+Create a file with name "alerting.rules.yml"
+Add the below rule:
+=================
+groups:
+- name: Server_is_down
+  rules: 
+  - alert: Server is down
+    expr: up == 0   #0 means down and 1 means running
+	for: 1m
+	labels:
+	  severity: page
+	annotations:
+      summary: Server(s) are down.	 
+========================	
+
+How to send the alert to Email?
+==============================
+If we want to send the alerts then we need to install Alertmanager on promethues server.
+
+We can setup this in 3 steps.
+1) Setup and Configure the Alertmanager.
+Download and extract alert manager on prometheus server from the below url.
+https://prometheus.io/download/
+Configure alert manager.
+Extract the alert manager file and create a new file with "email.yml" and add the below content.
+============
+route:
+  group_by: ['alertname']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 1h
+  receiver: 'send.email'  #this can be any name
+receivers:
+  - name: 'send.email'    #same name as configured in route receiver.
+    email_configs:
+     - to: md.sabair27@gmail.com
+       from: mohammed.sabair@outlook.com
+       smarthost: smtp.office365.com:587
+       auth_username: mohammed.sabair@outlook.com
+       auth_password: Alina@0509
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'dev', 'instance']
+===============
+
+Start the alert manager by using below command.
+./alertmanager --config.file=email.yml
+
+2) Configure Prometheus to talk to Alertmanager.
+Now goto prometheus.yml and add the alerting rules.
+================
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - 'localhost:9093'
+=======================
+Now start the promethues server.
+./prometheus --config.file=prometheus.yml
+3) Create Alerting rules in prometheus.
+
+Once done then try to bring down node exporter/shutdown on target machine which will trigger the alert we have created
+and we can see a email related to the Alert.
+
+More Alerting configurations:
+https://grafana.com/blog/2020/02/25/step-by-step-guide-to-setting-up-prometheus-alertmanager-with-slack-pagerduty-and-gmail/
+
+Run promethues using service:
+============================
+1) Create one service file at the location "vi /etc/systemd/system/prometheus.service"
+
+===============================
+[Unit]
+Description=Prometheus Monitoring System
+Documentation=https://prometheus.io/docs/introduction/overview/
+After=network=online.target
+
+[Service]
+User=root
+Restart=on-failure
+
+ExecStart=/opt/prometheus-2.37.8.linux-amd64/prometheus --config.file=/opt/prometheus-2.37.8.linux-amd64/prometheus.yml
+
+[Install]
+WantedBy=multi-user.target
+==========================
+2) Restart the daemond
+sudo systemctl daemon-reload
+
+We can do the same thing for node exporter and alert manager.
+
+Create Dashboards in Grafana:
+=============================
+Grafana is a visulaization tool which can be integrated using prometheus and other monitoring platforms.
+
+Install Grafana:
+===============
+https://grafana.com/grafana/download
+Go to the bin directory of the package extracted and run grafana-server.
+./grafana-server
+Access grafana on port <public-ip>:3000
+
+Note: Deafault credentials will be
+username: admin
+password: admin
+
+Once grafana is installed go to data source and add the url of prometheus server and click on save.
+Now we will get all the metrics from prometheus to grafana.
+
+How to create dashboard?
+We can create dashboard from scratch or import the existing dashboard.
+go to https://grafana.com/grafana/dashboards/3662-prometheus-2-0-overview/
+and either download the json or copy the id.
+Go to dashboard-->select import and add the id/upload the json and save.
+Now we can able to see a beautiful dashboard with our metrics.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
